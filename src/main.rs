@@ -1,4 +1,6 @@
-use std::io::Read;
+use std::fs;
+use std::fs::OpenOptions;
+use std::io::prelude::*;
 
 static CHALLENGE_FN: &str = "challenge.bin";
 
@@ -25,42 +27,138 @@ const OUT: u16 = 19;
 const IN: u16 = 20;
 const NOOP: u16 = 21;
 
-fn get_args(cursor: &usize, memory: &[u16], registers: &[u16]) -> (u16, u16, u16) {
-    let a;
-    match memory[*cursor as usize] {
-        PUSH | JMP | JT | JF | CALL | WMEM | OUT => {
-            a = match memory[cursor + 1] {
-                v if v > 32767 && v <= 32775 => registers[v as usize - 32768],
-                v => v,
-            };
-        }
-        _ => {
-            a = memory[cursor + 1] as u16 - 32768;
-        }
-    }
-    let b = *registers
-        .get(memory[*cursor + 2] as usize - 32768)
-        .unwrap_or(&memory[*cursor + 2]);
-    let c = *registers
-        .get(memory[*cursor + 3] as usize - 32768)
-        .unwrap_or(&memory[*cursor + 3]);
-    (a, b, c)
+#[derive(Debug, Clone)]
+struct Halt;
+
+#[derive(Clone)]
+struct Computer {
+    cursor: usize,
+    registers: [u16; 8],
+    memory: [u16; 32768],
+    stack: Vec<u16>,
 }
 
-fn compute(data: &Vec<u16>) {
-    let mut cursor: usize = 0;
-    let mut registers = [0_u16; 8];
-    let mut memory = [0_u16; 32768];
-    let mut stack: Vec<u16> = Vec::new();
-    // let mut input;
-    let mut step = 0;
+#[derive(Debug)]
+enum Arg {
+    Reg(usize, u16),
+    V(u16),
+}
 
-    memory[0..data.len()].clone_from_slice(data);
-    loop {
-        step += 1;
-        let op = memory[cursor];
-        let (a, b, c) = get_args(&cursor, &memory, &registers);
-        cursor += match op {
+impl Computer {
+    fn new(memory: &[u16]) -> Computer {
+        let mut mem = [0_u16; 32768];
+        mem[0..memory.len()].clone_from_slice(memory);
+        Computer {
+            cursor: 0,
+            registers: [0_u16; 8],
+            memory: mem,
+            stack: Vec::new(),
+        }
+    }
+
+    fn get_args(&self) -> (u16, u16, u16) {
+        let a;
+        match self.memory[self.cursor as usize] {
+            PUSH | JMP | JT | JF | CALL | WMEM | OUT => {
+                a = match self.memory[self.cursor + 1] {
+                    v if v > 32767 && v <= 32775 => self.registers[v as usize - 32768],
+                    v => v,
+                };
+            }
+            _ => {
+                a = self.memory[self.cursor + 1] as u16 - 32768;
+            }
+        }
+        let b = *self
+            .registers
+            .get(self.memory[self.cursor + 2] as usize - 32768)
+            .unwrap_or(&self.memory[self.cursor + 2]);
+        let c = *self
+            .registers
+            .get(self.memory[self.cursor + 3] as usize - 32768)
+            .unwrap_or(&self.memory[self.cursor + 3]);
+        (a, b, c)
+    }
+
+    fn toarg(&self, argument: u16) -> Arg {
+        match argument {
+            v if v > 32767 && v <= 32775 => {
+                Arg::Reg(v as usize - 32768, self.registers[v as usize - 32768])
+            }
+            v => Arg::V(v),
+            _ => panic!(),
+        }
+    }
+    fn peek_iter(&self, input: &Vec<u8>) {
+        let (a, b, c) = self.get_args();
+        let (a, b, c) = (
+            self.toarg(self.memory[self.cursor + 1]),
+            self.toarg(self.memory[self.cursor + 2]),
+            self.toarg(self.memory[self.cursor + 3]),
+        );
+
+        let op_str = match self.memory[self.cursor] {
+            HALT => "HALT",
+            SET => "SET",
+            PUSH => "PUSH",
+            POP => "POP",
+            EQ => "EQ",
+            GT => "GT",
+            JMP => "JMP",
+            JT => "JT",
+            JF => "JF",
+            ADD => "ADD",
+            MULT => "MULT",
+            MOD => "MOD",
+            AND => "AND",
+            OR => "OR",
+            NOT => "NOT",
+            RMEM => "RMEM",
+            WMEM => "WMEM",
+            CALL => "CALL",
+            RET => "RET",
+            OUT => "OUT",
+            IN => "IN",
+            NOOP => "NOOP",
+            _ => panic!(),
+        };
+        print!("op {} ", self.cursor);
+        match self.memory[self.cursor] {
+            EQ | GT | ADD | MULT | MOD | AND | OR => println!("{}: {:?}", op_str, (a, b, c)),
+            SET | JT | JF | NOT | RMEM | WMEM => println!("{}: {:?}", op_str, (a, b)),
+            OUT | IN | JMP => println!("{}: {:?}", op_str, (a)),
+            NOOP => println!("{}", op_str),
+            RET => println!("{}, stack {:?}", op_str, self.stack.last().unwrap()),
+            CALL => println!(
+                "{}, {:?}, pushed {:?} {:?} (len {})",
+                op_str,
+                a,
+                self.cursor + 2,
+                self.stack.iter().rev().take(5).collect::<Vec<_>>(),
+                self.stack.len()
+            ),
+            POP => println!(
+                "{}, {:?}, popped {:?} {:?} (len {})",
+                op_str,
+                a,
+                self.stack.last().unwrap(),
+                self.stack.iter().rev().take(5).collect::<Vec<_>>(),
+                self.stack.len()
+            ),
+            PUSH => println!(
+                "{}, {:?},  {:?} (len {})",
+                op_str,
+                a,
+                self.stack.iter().rev().take(5).collect::<Vec<_>>(),
+                self.stack.len()
+            ),
+            _ => panic!(),
+        };
+    }
+    fn iter(&mut self, input: &mut Vec<u8>) -> Result<Option<u8>, Halt> {
+        let op = self.memory[self.cursor];
+        let (a, b, c) = self.get_args();
+        self.cursor += match op {
             EQ | GT | ADD | MULT | MOD | AND | OR => 4,
             SET | JT | JF | NOT | RMEM | WMEM => 3,
             PUSH | POP | CALL | OUT | IN => 2,
@@ -70,62 +168,115 @@ fn compute(data: &Vec<u16>) {
         };
 
         match op {
-            HALT => break,
-            SET => registers[a as usize] = b,
-            PUSH => stack.push(a),
-            POP => registers[a as usize] = stack.pop().unwrap(),
-            EQ => registers[a as usize] = (b == c) as u16,
-            GT => registers[a as usize] = (b > c) as u16,
-            JMP => cursor = a as usize,
+            HALT => return Err(Halt),
+            SET => self.registers[a as usize] = b,
+            PUSH => self.stack.push(a),
+            POP => self.registers[a as usize] = self.stack.pop().unwrap(),
+            EQ => self.registers[a as usize] = (b == c) as u16,
+            GT => self.registers[a as usize] = (b > c) as u16,
+            JMP => self.cursor = a as usize,
             JT => {
                 if a != 0 {
-                    cursor = b as usize;
+                    self.cursor = b as usize;
                 }
             }
             JF => {
                 if a == 0 {
-                    cursor = b as usize;
+                    self.cursor = b as usize;
                 }
             }
-            ADD => registers[a as usize] = (b + c) % 32768,
-            MULT => registers[a as usize] = (b * c) % 32768,
-            MOD => registers[a as usize] = b % c,
-            AND => registers[a as usize] = b & c,
-            OR => registers[a as usize] = b | c,
-            NOT => registers[a as usize] = !b % 32768,
-            RMEM => registers[a as usize] = memory[b as usize],
-            WMEM => memory[a as usize] = b,
+            ADD => self.registers[a as usize] = (b + c) % 32768,
+            MULT => self.registers[a as usize] = (b * c) % 32768,
+            MOD => self.registers[a as usize] = b % c,
+            AND => self.registers[a as usize] = b & c,
+            OR => self.registers[a as usize] = b | c,
+            NOT => self.registers[a as usize] = !b % 32768,
+            RMEM => self.registers[a as usize] = self.memory[b as usize],
+            WMEM => self.memory[a as usize] = b,
             CALL => {
-                stack.push(cursor as u16);
-                cursor = a as usize
+                self.stack.push(self.cursor as u16);
+                self.cursor = a as usize
             }
-            RET => cursor = stack.pop().unwrap() as usize,
+            RET => self.cursor = self.stack.pop().unwrap() as usize,
             IN => {
-                registers[a as usize] = std::io::stdin()
-                    .bytes()
-                    .next()
-                    .and_then(|result| result.ok())
-                    .map(|byte| byte as u16)
-                    .unwrap()
+                self.registers[a as usize] = match input.pop() {
+                    Some(val) => val as u16,
+                    // _ => std::io::stdin()
+                    //     .bytes()
+                    //     .next()
+                    //     .and_then(|result| result.ok())
+                    //     .map(|byte| byte as u16)
+                    //     .unwrap() as u16,
+                    _ => {
+                        panic!();
+                        println!("{:?}", self.stack);
+                        println!("{:?}", self.registers);
+                        return Ok(None);
+                    }
+                }
             }
 
-            OUT => print!("{}", a as u8 as char),
+            OUT => return Ok(Some(a as u8)),
             NOOP => (),
 
             _ => {
-                println!("Operation: {}", op);
-                break;
+                panic!()
             }
-        }
+        };
+        Ok(None)
     }
 }
+
 fn main() {
     let bytes = std::fs::read(CHALLENGE_FN).unwrap();
-
     let data: Vec<u16> = bytes
         .chunks(2)
         .map(|b| u16::from_le_bytes([b[0], b[1]]))
         .collect();
 
-    compute(&data);
+    let input = fs::read_to_string("to_teleporter.txt").expect("can't find file");
+    let mut input: Vec<u8> = input.chars().rev().map(|c| c as u8).collect();
+
+    let mut computer = Computer::new(&data);
+
+    while !input.is_empty() {
+        if let Ok(Some(out)) = computer.iter(&mut input) {
+            // print!("{}", out as char);
+        }
+    }
+
+    for i in 0..1 {
+        let mut new_input: Vec<u8> = "use teleporter\n".chars().rev().map(|c| c as u8).collect();
+        let mut parallel_universe = computer.clone();
+
+        parallel_universe.registers[7] = 2 as u16;
+        while !new_input.is_empty() {
+            if let Ok(Some(out)) = parallel_universe.iter(&mut new_input) {
+                print!("{}", out as char);
+            }
+        }
+
+        let mut is5491 = false;
+        loop {
+            
+            // about to end super long loop
+            if parallel_universe.cursor == 5489 {
+                parallel_universe.cursor = 5491;
+                parallel_universe.registers[0] = 6;
+                parallel_universe.registers[1] = 5;
+            }
+            if parallel_universe.cursor == 5491 {
+                println!("registers: {:?}", parallel_universe.registers);
+                println!("stack: {:?}", parallel_universe.stack);
+                is5491 = true;
+            }
+            if is5491 {
+                // parallel_universe.peek_iter(&new_input);
+            }
+            if let Ok(Some(out)) = parallel_universe.iter(&mut new_input) {
+                print!("{}", out as char);
+            }
+            // i += 1;
+        }
+    }
 }

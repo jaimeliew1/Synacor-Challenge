@@ -1,0 +1,62 @@
+doorway
+north
+north
+bridge
+continue
+down
+east
+take empty lantern
+west
+west
+passage
+ladder
+east
+south
+north
+east
+west
+north
+north
+west
+south
+north
+take can
+look
+west
+ladder
+darkness
+use can
+use lantern
+continue
+east
+continue
+west
+west
+west
+west
+north
+take red coin
+north
+east
+take concave coin
+down
+take corroded coin
+up
+west
+west
+take blue coin
+up
+take shiny coin
+down
+east
+inv
+use blue coin
+use red coin
+use shiny coin
+use concave coin
+use corroded coin
+north
+take teleporter
+use teleporter
+look strange book
+
