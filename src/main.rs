@@ -201,18 +201,18 @@ impl Computer {
             IN => {
                 self.registers[a as usize] = match input.pop() {
                     Some(val) => val as u16,
-                    // _ => std::io::stdin()
-                    //     .bytes()
-                    //     .next()
-                    //     .and_then(|result| result.ok())
-                    //     .map(|byte| byte as u16)
-                    //     .unwrap() as u16,
-                    _ => {
-                        panic!();
-                        println!("{:?}", self.stack);
-                        println!("{:?}", self.registers);
-                        return Ok(None);
-                    }
+                    _ => {std::io::stdin()
+                        .bytes()
+                        .next()
+                        .and_then(|result| result.ok())
+                        .map(|byte| byte as u16)
+                        .unwrap() as u16},
+                    // _ => {
+                    //     panic!();
+                    //     println!("{:?}", self.stack);
+                    //     println!("{:?}", self.registers);
+                    //     return Ok(None);
+                    // }
                 }
             }
 
@@ -245,38 +245,30 @@ fn main() {
         }
     }
 
-    for i in 0..1 {
-        let mut new_input: Vec<u8> = "use teleporter\n".chars().rev().map(|c| c as u8).collect();
-        let mut parallel_universe = computer.clone();
 
-        parallel_universe.registers[7] = 2 as u16;
-        while !new_input.is_empty() {
-            if let Ok(Some(out)) = parallel_universe.iter(&mut new_input) {
-                print!("{}", out as char);
-            }
+    let input = fs::read_to_string("to_orb.txt").expect("can't find file");
+    let mut input: Vec<u8> = input.chars().rev().map(|c| c as u8).collect();
+    computer.registers[7] = 25734 as u16;
+    while !input.is_empty() {
+        
+        // skip super long loop
+        if computer.cursor == 5489 {
+            computer.cursor = 5491;
+            computer.registers[0] = 6;
+            computer.registers[1] = 5;
         }
-
-        let mut is5491 = false;
-        loop {
-            
-            // about to end super long loop
-            if parallel_universe.cursor == 5489 {
-                parallel_universe.cursor = 5491;
-                parallel_universe.registers[0] = 6;
-                parallel_universe.registers[1] = 5;
-            }
-            if parallel_universe.cursor == 5491 {
-                println!("registers: {:?}", parallel_universe.registers);
-                println!("stack: {:?}", parallel_universe.stack);
-                is5491 = true;
-            }
-            if is5491 {
-                // parallel_universe.peek_iter(&new_input);
-            }
-            if let Ok(Some(out)) = parallel_universe.iter(&mut new_input) {
-                print!("{}", out as char);
-            }
-            // i += 1;
+        if let Ok(Some(out)) = computer.iter(&mut input) {
+            print!("{}", out as char);
         }
     }
+
+    let mut empty_vec = Vec::new();
+    loop {
+        // computer.peek_iter(&empty_vec);
+        if let Ok(Some(out)) = computer.iter(&mut empty_vec) {
+            print!("{}", out as char);
+        }
+
+    }
+    
 }

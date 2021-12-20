@@ -1,0 +1,12 @@
+use teleporter
+north
+north
+north
+north
+north
+north
+north
+north
+north
+take orb
+
