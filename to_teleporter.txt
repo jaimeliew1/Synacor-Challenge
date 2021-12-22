@@ -1,3 +1,5 @@
+take tablet
+use tablet
 doorway
 north
 north
